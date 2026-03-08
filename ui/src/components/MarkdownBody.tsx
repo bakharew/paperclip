@@ -124,6 +124,7 @@ export function MarkdownBody({ children, className }: MarkdownBodyProps) {
     >
       <Markdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url) => url}
         components={{
           pre: ({ node: _node, children: preChildren, ...preProps }) => {
             const mermaidSource = extractMermaidSource(preChildren);
