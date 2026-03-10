@@ -23,7 +23,6 @@ import {
   parseClaudeStreamJson,
   describeClaudeFailure,
   detectClaudeLoginRequired,
-  isClaudeMaxTurnsResult,
   isClaudeUnknownSessionError,
 } from "./parse.js";
 
@@ -331,7 +330,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       `[paperclip] Claude session "${runtimeSessionId}" was saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${cwd}".\n`,
     );
   }
-  const prompt = renderTemplate(promptTemplate, {
+  const renderedPrompt = renderTemplate(promptTemplate, {
     agentId: agent.id,
     companyId: agent.companyId,
     runId,
@@ -340,6 +339,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     run: { id: runId, source: "on_demand" },
     context,
   });
+  // For new task assignments, prepend /session-start so it's the first thing
+  // the agent processes. This ensures the session workflow (worktree, tunnel,
+  // registry, requirements) runs before any implementation work begins.
+  const isNewTaskAssignment =
+    typeof context.wakeReason === "string" && context.wakeReason.trim() === "issue_assigned";
+  const prompt = isNewTaskAssignment ? `/session-start\n\n${renderedPrompt}` : renderedPrompt;
 
   const buildClaudeArgs = (resumeSessionId: string | null) => {
     const args = ["--print", "-", "--output-format", "stream-json", "--verbose"];
@@ -474,8 +479,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
       } as Record<string, unknown>)
       : null;
-    const clearSessionForMaxTurns = isClaudeMaxTurnsResult(parsed);
-
     return {
       exitCode: proc.exitCode,
       signal: proc.signal,
@@ -496,7 +499,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       costUsd: parsedStream.costUsd ?? asNumber(parsed.total_cost_usd, 0),
       resultJson: parsed,
       summary: parsedStream.summary || asString(parsed.result, ""),
-      clearSession: clearSessionForMaxTurns || Boolean(opts.clearSessionOnMissingSession && !resolvedSessionId),
+      clearSession: Boolean(opts.clearSessionOnMissingSession && !resolvedSessionId),
     };
   };
 
