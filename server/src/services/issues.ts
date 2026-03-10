@@ -1211,14 +1211,19 @@ export function issueService(db: Db) {
       }),
 
     findMentionedAgents: async (companyId: string, body: string) => {
-      const re = /\B@([^\s@,!?.]+)/g;
-      const tokens = new Set<string>();
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(body)) !== null) tokens.add(m[1].toLowerCase());
-      if (tokens.size === 0) return [];
       const rows = await db.select({ id: agents.id, name: agents.name })
         .from(agents).where(eq(agents.companyId, companyId));
-      return rows.filter(a => tokens.has(a.name.toLowerCase())).map(a => a.id);
+      if (rows.length === 0) return [];
+      return rows
+        .filter(a => {
+          // Escape regex special chars in agent name, then match @Name
+          // preceded by a non-word char (or start) and followed by a non-word char (or end).
+          // This handles multi-word names like "Tester 2" and avoids email-like false positives.
+          const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const re = new RegExp(`(?:^|\\W)@${escaped}(?=$|\\W)`, "i");
+          return re.test(body);
+        })
+        .map(a => a.id);
     },
 
     findMentionedProjectIds: async (issueId: string) => {

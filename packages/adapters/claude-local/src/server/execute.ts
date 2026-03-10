@@ -428,6 +428,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           }
         : undefined;
 
+    // Build session fields from streaming output. The system init event
+    // emits the session_id early, so even if the process is killed (SIGTERM /
+    // timeout) before producing a final result JSON, we can still preserve
+    // the session for later --resume.
+    const earlySessionId = parsedStream.sessionId ?? opts.fallbackSessionId;
+    const earlySessionFields = earlySessionId
+      ? {
+          sessionId: earlySessionId,
+          sessionParams: {
+            sessionId: earlySessionId,
+            cwd,
+            ...(workspaceId ? { workspaceId } : {}),
+            ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
+            ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
+          } as Record<string, unknown>,
+          sessionDisplayId: earlySessionId,
+        }
+      : {};
+
     if (proc.timedOut) {
       return {
         exitCode: proc.exitCode,
@@ -437,6 +456,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         errorCode: "timeout",
         errorMeta,
         clearSession: Boolean(opts.clearSessionOnMissingSession),
+        ...earlySessionFields,
       };
     }
 
@@ -453,6 +473,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           stderr: proc.stderr,
         },
         clearSession: Boolean(opts.clearSessionOnMissingSession),
+        ...earlySessionFields,
       };
     }
 
